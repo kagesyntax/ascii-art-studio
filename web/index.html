@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>ASCII Art Studio</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #111;
+    }
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .loading {
+      color: #888;
+      font-family: monospace;
+      font-size: 18px;
+      text-align: center;
+      padding-top: 40vh;
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container">
+    <div class="loading">Loading ASCII Art Studio…</div>
+  </div>
+
+  <script type="module">
+    import init, { WebHandle } from './pkg/learn.js';
+
+    async function run() {
+      await init();
+
+      const container = document.getElementById('canvas-container');
+      container.innerHTML = '';
+
+      const canvas = document.createElement('canvas');
+      canvas.id = 'ascii-canvas';
+      canvas.tabIndex = 0;
+      container.appendChild(canvas);
+
+      const handle = new WebHandle();
+      await handle.start(canvas);
+      canvas.focus();
+      window.webHandle = handle;
+      console.log('ASCII Art Studio started successfully');
+    }
+
+    run().catch(err => {
+      console.error('Failed to start:', err);
+      const el = document.getElementById('canvas-container');
+      if (el) {
+        el.innerHTML = '<div class="loading">Failed to load: ' + err + '</div>';
+      }
+    });
+  </script>
+</body>
+</html>
