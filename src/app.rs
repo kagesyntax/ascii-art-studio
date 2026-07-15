@@ -515,14 +515,14 @@ impl eframe::App for AsciiApp {
                     egui::Color32::WHITE
                 };
 
-                if let Some(ref result) = self.result {
-                    ui.horizontal(|ui| {
-                        if !self.sidebar_open {
-                            if ui.button("☰").clicked() {
-                                self.sidebar_open = true;
-                            }
-                            ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if !self.sidebar_open {
+                        if ui.button("☰").clicked() {
+                            self.sidebar_open = true;
                         }
+                        ui.add_space(8.0);
+                    }
+                    if self.result.is_some() {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("+").clicked() {
                                 self.zoom = (self.zoom * 1.25).min(10.0);
@@ -532,44 +532,48 @@ impl eframe::App for AsciiApp {
                                 self.zoom = (self.zoom / 1.25).max(0.25);
                             }
                         });
-                    });
+                    }
+                });
 
+                if let Some(ref result) = self.result {
                     let font_size = self.config.font_size * self.zoom;
                     let font_id = FontId::new(font_size, FontFamily::Monospace);
 
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            let mut job = egui::text::LayoutJob::default();
-                            job.wrap.max_width = f32::INFINITY;
-                            let mut buf = [0u8; 4];
-                            for (ri, row) in result.cells.iter().enumerate() {
-                                if ri > 0 {
-                                    job.append("\n", 0.0, egui::TextFormat::simple(font_id.clone(), fg));
-                                }
-                                if self.config.color {
-                                    for cell in row {
-                                        let s = cell.ch.encode_utf8(&mut buf);
-                                        let fmt = egui::TextFormat {
-                                            font_id: font_id.clone(),
-                                            color: egui::Color32::from_rgb(cell.r, cell.g, cell.b),
-                                            ..Default::default()
-                                        };
-                                        job.append(s, 0.0, fmt);
+                            ui.vertical_centered(|ui| {
+                                let mut job = egui::text::LayoutJob::default();
+                                job.wrap.max_width = f32::INFINITY;
+                                let mut buf = [0u8; 4];
+                                for (ri, row) in result.cells.iter().enumerate() {
+                                    if ri > 0 {
+                                        job.append("\n", 0.0, egui::TextFormat::simple(font_id.clone(), fg));
                                     }
-                                } else {
-                                    for cell in row {
-                                        let s = cell.ch.encode_utf8(&mut buf);
-                                        let fmt = egui::TextFormat {
-                                            font_id: font_id.clone(),
-                                            color: fg,
-                                            ..Default::default()
-                                        };
-                                        job.append(s, 0.0, fmt);
+                                    if self.config.color {
+                                        for cell in row {
+                                            let s = cell.ch.encode_utf8(&mut buf);
+                                            let fmt = egui::TextFormat {
+                                                font_id: font_id.clone(),
+                                                color: egui::Color32::from_rgb(cell.r, cell.g, cell.b),
+                                                ..Default::default()
+                                            };
+                                            job.append(s, 0.0, fmt);
+                                        }
+                                    } else {
+                                        for cell in row {
+                                            let s = cell.ch.encode_utf8(&mut buf);
+                                            let fmt = egui::TextFormat {
+                                                font_id: font_id.clone(),
+                                                color: fg,
+                                                ..Default::default()
+                                            };
+                                            job.append(s, 0.0, fmt);
+                                        }
                                     }
                                 }
-                            }
-                            ui.label(job);
+                                ui.label(job);
+                            });
                         });
                 } else {
                     ui.vertical_centered_justified(|ui| {
