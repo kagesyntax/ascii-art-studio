@@ -39,11 +39,11 @@ export interface InitOutput {
     readonly webhandle_destroy: (a: number) => void;
     readonly webhandle_new: () => number;
     readonly webhandle_start: (a: number, b: number) => number;
-    readonly __wasm_bindgen_func_elem_11398: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_11401: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_866: (a: number, b: number, c: number) => void;
-    readonly __wasm_bindgen_func_elem_866_2: (a: number, b: number, c: number) => void;
-    readonly __wasm_bindgen_func_elem_864: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_11411: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_11414: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_879: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_879_2: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_877: (a: number, b: number, c: number) => void;
     readonly __wasm_bindgen_func_elem_370: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
