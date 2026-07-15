@@ -1,6 +1,7 @@
 use crate::engine::{self, AsciiConfig, AsciiResult};
 use eframe::egui::{self, FontFamily, FontId};
 use image::DynamicImage;
+use std::time::Instant;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
@@ -19,7 +20,9 @@ pub struct AsciiApp {
     pub dirty: bool,
     pending_file: Option<poll_promise::Promise<Option<FilePick>>>,
     #[cfg(not(target_arch = "wasm32"))]
-    video_load: Option<std::sync::mpsc::Receiver<Option<(Vec<AsciiResult>, f32)>>>,
+    raw_frames: Option<Vec<DynamicImage>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    video_load: Option<std::sync::mpsc::Receiver<Option<(Vec<DynamicImage>, Vec<AsciiResult>, f32)>>>,
     #[cfg(not(target_arch = "wasm32"))]
     video_frames: Option<Vec<AsciiResult>>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -30,6 +33,7 @@ pub struct AsciiApp {
     video_fps: f32,
     #[cfg(not(target_arch = "wasm32"))]
     video_timer: f32,
+    recompute_debounce: Option<Instant>,
 }
 
 impl Default for AsciiApp {
@@ -40,6 +44,8 @@ impl Default for AsciiApp {
             config: AsciiConfig::default(),
             dirty: false,
             pending_file: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            raw_frames: None,
             #[cfg(not(target_arch = "wasm32"))]
             video_load: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -52,6 +58,7 @@ impl Default for AsciiApp {
             video_fps: 30.0,
             #[cfg(not(target_arch = "wasm32"))]
             video_timer: 0.0,
+            recompute_debounce: None,
         }
     }
 }
@@ -81,6 +88,19 @@ impl AsciiApp {
     pub fn recompute(&mut self) {
         if let Some(ref img) = self.image {
             self.result = engine::convert_to_ascii(img, &self.config);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(ref raw) = self.raw_frames {
+            use rayon::prelude::*;
+            let cfg = self.config.clone();
+            self.video_frames = Some(
+                raw.par_iter()
+                    .map(|frame| engine::convert_to_ascii(frame, &cfg).unwrap())
+                    .collect(),
+            );
+            if self.video_current >= self.video_frames.as_ref().map_or(0, |f| f.len()) {
+                self.video_current = 0;
+            }
         }
         self.dirty = false;
     }
@@ -117,15 +137,17 @@ impl AsciiApp {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut decoder = crate::video::FrameDecoder::open(&path, cfg.width_chars as u32);
+            let mut raw = Vec::new();
             let mut frames = Vec::new();
             if let Some(ref mut dec) = decoder {
                 let fps = dec.info.fps;
                 while let Some(img) = dec.next_frame() {
                     if let Some(result) = engine::convert_to_ascii(&img, &cfg) {
+                        raw.push(img);
                         frames.push(result);
                     }
                 }
-                let _ = tx.send(Some((frames, fps)));
+                let _ = tx.send(Some((raw, frames, fps)));
             } else {
                 let _ = tx.send(None);
             }
@@ -315,8 +337,9 @@ impl eframe::App for AsciiApp {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(ref rx) = self.video_load {
-                if let Ok(Some((frames, fps))) = rx.try_recv() {
+                if let Ok(Some((raw, frames, fps))) = rx.try_recv() {
                     if !frames.is_empty() {
+                        self.raw_frames = Some(raw);
                         self.video_frames = Some(frames);
                         self.video_current = 0;
                         self.video_playing = true;
@@ -329,7 +352,16 @@ impl eframe::App for AsciiApp {
         }
 
         if self.dirty {
-            self.recompute();
+            let should_run = match self.recompute_debounce {
+                Some(t) => t.elapsed().as_millis() > 50,
+                None => true,
+            };
+            if should_run {
+                self.recompute();
+                self.recompute_debounce = Some(Instant::now());
+            } else {
+                ui.ctx().request_repaint();
+            }
         }
 
         #[cfg(not(target_arch = "wasm32"))]
