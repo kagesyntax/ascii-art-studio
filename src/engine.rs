@@ -95,6 +95,7 @@ pub struct AsciiCell {
     pub b: u8,
 }
 
+#[derive(Clone)]
 pub struct AsciiResult {
     pub cells: Vec<Vec<AsciiCell>>,
     pub img_w: u32,

@@ -8,6 +8,18 @@ pub struct AsciiApp {
     pub config: AsciiConfig,
     pub dirty: bool,
     pending_file: Option<poll_promise::Promise<Option<Vec<u8>>>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    video_load: Option<std::sync::mpsc::Receiver<Option<(Vec<AsciiResult>, f32)>>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    video_frames: Option<Vec<AsciiResult>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    video_current: usize,
+    #[cfg(not(target_arch = "wasm32"))]
+    video_playing: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    video_fps: f32,
+    #[cfg(not(target_arch = "wasm32"))]
+    video_timer: f32,
 }
 
 impl Default for AsciiApp {
@@ -18,8 +30,29 @@ impl Default for AsciiApp {
             config: AsciiConfig::default(),
             dirty: false,
             pending_file: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            video_load: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            video_frames: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            video_current: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            video_playing: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            video_fps: 30.0,
+            #[cfg(not(target_arch = "wasm32"))]
+            video_timer: 0.0,
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const VIDEO_EXTS: &[&str] = &["mp4", "avi", "mov", "mkv", "webm", "gif"];
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_video(path: &str) -> bool {
+    let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
+    VIDEO_EXTS.contains(&ext.as_str())
 }
 
 impl AsciiApp {
@@ -45,21 +78,50 @@ impl AsciiApp {
     fn button_open(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.pending_file = Some(poll_promise::Promise::spawn_thread("file_open", || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
                 let file = pollster::block_on(
                     rfd::AsyncFileDialog::new()
-                        .add_filter(
-                            "Images",
-                            &["png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff"],
-                        )
+                        .add_filter("Media", &["png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff", "mp4", "avi", "mov", "mkv", "webm"])
                         .pick_file(),
                 );
-                Some(std::fs::read(file?.path()).ok()?)
-            }));
+                let _ = tx.send(file.map(|f| (f.path().to_path_buf(), f.path().display().to_string())));
+            });
+            if let Ok(Some((path, name))) = rx.recv() {
+                if is_video(&name) {
+                    self.load_video(&name);
+                } else if let Ok(img) = image::open(&path) {
+                    self.image = Some(img);
+                    self.dirty = true;
+                }
+            }
         }
 
         #[cfg(target_arch = "wasm32")]
         self.button_open_wasm();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_video(&mut self, path: &str) {
+        let path = path.to_owned();
+        let cfg = self.config.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut decoder = crate::video::FrameDecoder::open(&path, cfg.width_chars as u32);
+            let mut frames = Vec::new();
+            if let Some(ref mut dec) = decoder {
+                let fps = dec.info.fps;
+                while let Some(img) = dec.next_frame() {
+                    if let Some(result) = engine::convert_to_ascii(&img, &cfg) {
+                        frames.push(result);
+                    }
+                }
+                let _ = tx.send(Some((frames, fps)));
+            } else {
+                let _ = tx.send(None);
+            }
+        });
+        self.video_load = Some(rx);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -233,8 +295,29 @@ impl eframe::App for AsciiApp {
             }
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(ref rx) = self.video_load {
+                if let Ok(Some((frames, fps))) = rx.try_recv() {
+                    if !frames.is_empty() {
+                        self.video_frames = Some(frames);
+                        self.video_current = 0;
+                        self.video_playing = true;
+                        self.video_timer = 0.0;
+                        self.video_fps = fps;
+                    }
+                    self.video_load = None;
+                }
+            }
+        }
+
         if self.dirty {
             self.recompute();
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(ref frames) = self.video_frames {
+            self.result = Some(frames[self.video_current].clone());
         }
 
         egui::Panel::top("controls").show(ui, |ui| {
@@ -253,6 +336,24 @@ impl eframe::App for AsciiApp {
 
                 if self.result.is_some() && ui.button("Save HTML").clicked() {
                     self.button_save_html();
+                }
+
+                #[cfg(not(target_arch = "wasm32"))]
+                if self.video_frames.is_some() {
+                    ui.separator();
+                    if ui.button(if self.video_playing { "⏸" } else { "▶" }).clicked() {
+                        self.video_playing = !self.video_playing;
+                    }
+                    let total = self.video_frames.as_ref().map_or(0, |f| f.len());
+                    let mut frame = self.video_current as f32;
+                    ui.add(
+                        egui::Slider::new(&mut frame, 0.0..=total.max(1) as f32 - 1.0)
+                            .integer()
+                            .text(format!("{}/{}", self.video_current + 1, total)),
+                    );
+                    if frame as usize != self.video_current {
+                        self.video_current = frame as usize;
+                    }
                 }
 
                 if let Some(ref result) = self.result {
@@ -349,6 +450,22 @@ impl eframe::App for AsciiApp {
                     });
             });
         });
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.video_playing {
+            let dt = ui.input(|i| i.unstable_dt);
+            self.video_timer += dt;
+            let sec_per_frame = 1.0 / self.video_fps;
+            while self.video_timer >= sec_per_frame && self.video_frames.is_some() {
+                self.video_timer -= sec_per_frame;
+                self.video_current += 1;
+                let total = self.video_frames.as_ref().map_or(0, |f| f.len());
+                if self.video_current >= total {
+                    self.video_current = 0;
+                }
+            }
+            ui.ctx().request_repaint();
+        }
 
         let bg = if self.config.invert {
             egui::Color32::WHITE
