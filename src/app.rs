@@ -1,13 +1,23 @@
 use crate::engine::{self, AsciiConfig, AsciiResult};
 use eframe::egui::{self, FontFamily, FontId};
 use image::DynamicImage;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
+
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#[derive(Clone)]
+enum FilePick {
+    Image(Vec<u8>),
+    #[cfg(not(target_arch = "wasm32"))]
+    Video(PathBuf, String),
+}
 
 pub struct AsciiApp {
     pub image: Option<DynamicImage>,
     pub result: Option<AsciiResult>,
     pub config: AsciiConfig,
     pub dirty: bool,
-    pending_file: Option<poll_promise::Promise<Option<Vec<u8>>>>,
+    pending_file: Option<poll_promise::Promise<Option<FilePick>>>,
     #[cfg(not(target_arch = "wasm32"))]
     video_load: Option<std::sync::mpsc::Receiver<Option<(Vec<AsciiResult>, f32)>>>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -78,23 +88,22 @@ impl AsciiApp {
     fn button_open(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
+            self.pending_file = Some(poll_promise::Promise::spawn_thread("file_open", || {
                 let file = pollster::block_on(
                     rfd::AsyncFileDialog::new()
                         .add_filter("Media", &["png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff", "mp4", "avi", "mov", "mkv", "webm"])
                         .pick_file(),
                 );
-                let _ = tx.send(file.map(|f| (f.path().to_path_buf(), f.path().display().to_string())));
-            });
-            if let Ok(Some((path, name))) = rx.recv() {
-                if is_video(&name) {
-                    self.load_video(&name);
-                } else if let Ok(img) = image::open(&path) {
-                    self.image = Some(img);
-                    self.dirty = true;
-                }
-            }
+                file.map(|f| {
+                    let path = f.path().to_path_buf();
+                    let name = f.path().display().to_string();
+                    if is_video(&name) {
+                        FilePick::Video(path, name)
+                    } else {
+                        FilePick::Image(std::fs::read(&path).unwrap_or_default())
+                    }
+                })
+            }));
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -186,7 +195,7 @@ impl AsciiApp {
                 return None;
             }
             let buf = js_sys::Uint8Array::new(&val);
-            Some(buf.to_vec())
+            Some(FilePick::Image(buf.to_vec()))
         }));
     }
 
@@ -287,11 +296,19 @@ fn download_file(name: &str, content: &str, mime: &str) {
 
 impl eframe::App for AsciiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        {
-            let done = self.pending_file.as_ref().and_then(|p| p.ready().cloned());
-            if let Some(Some(bytes)) = done {
-                self.load_image_bytes(&bytes);
-                self.pending_file = None;
+        if let Some(promise) = self.pending_file.take() {
+            if let Some(Some(pick)) = promise.ready().cloned() {
+                match pick {
+                    FilePick::Image(bytes) => self.load_image_bytes(&bytes),
+                    #[cfg(not(target_arch = "wasm32"))]
+                    FilePick::Video(_path, name) => {
+                        self.image = None;
+                        self.result = None;
+                        self.load_video(&name);
+                    }
+                }
+            } else {
+                self.pending_file = Some(promise);
             }
         }
 
@@ -326,7 +343,7 @@ impl eframe::App for AsciiApp {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 ui.spacing_mut().item_spacing.y = 4.0;
 
-                if ui.button("Open Image").clicked() {
+                if ui.button("Open File").clicked() {
                     self.button_open();
                 }
 
