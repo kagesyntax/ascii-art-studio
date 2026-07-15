@@ -153,23 +153,48 @@ pub fn convert_to_ascii(img: &DynamicImage, config: &AsciiConfig) -> Option<Asci
     let chars: Vec<char> = charset.chars().collect();
     let num_levels = chars.len();
 
-    let mut pixels: Vec<(f32, u8, u8, u8)> = Vec::with_capacity(out_w * out_h);
-    for y in 0..out_h {
-        for x in 0..out_w {
-            let px = resized.get_pixel(x as u32, y as u32);
-            let (r, g, b) = (px[0], px[1], px[2]);
-            let luma = luminance(r, g, b);
-            pixels.push((luma, r, g, b));
+    let n_pixels = out_w * out_h;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut pixels = {
+        let mut px = vec![(0.0f32, 0u8, 0u8, 0u8); n_pixels];
+        px.par_chunks_mut(out_w).enumerate().for_each(|(y, row)| {
+            for (x, cell) in row.iter_mut().enumerate() {
+                let c = resized.get_pixel(x as u32, y as u32);
+                *cell = (luminance(c[0], c[1], c[2]), c[0], c[1], c[2]);
+            }
+        });
+        px
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    let mut pixels = {
+        let mut px = Vec::with_capacity(n_pixels);
+        for y in 0..out_h {
+            for x in 0..out_w {
+                let c = resized.get_pixel(x as u32, y as u32);
+                px.push((luminance(c[0], c[1], c[2]), c[0], c[1], c[2]));
+            }
         }
-    }
+        px
+    };
 
     if config.contrast != 1.0 {
+        #[cfg(not(target_arch = "wasm32"))]
+        pixels.par_iter_mut().for_each(|px| {
+            let l = px.0 / 255.0;
+            px.0 = (l.powf(config.contrast) * 255.0).clamp(0.0, 255.0);
+        });
+        #[cfg(target_arch = "wasm32")]
         for px in &mut pixels {
             let l = px.0 / 255.0;
             px.0 = (l.powf(config.contrast) * 255.0).clamp(0.0, 255.0);
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut luma_vals: Vec<f32> = pixels.par_iter().map(|p| p.0).collect();
+    #[cfg(target_arch = "wasm32")]
     let mut luma_vals: Vec<f32> = pixels.iter().map(|p| p.0).collect();
     let edge_map = if config.edges {
         Some(sobel_edges(&luma_vals, out_w, out_h, config.edge_threshold))
