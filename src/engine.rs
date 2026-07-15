@@ -107,6 +107,7 @@ pub struct AsciiResult {
 #[derive(Clone)]
 pub struct AsciiConfig {
     pub width_chars: usize,
+    pub height_chars: Option<usize>,
     pub color: bool,
     pub dither: bool,
     pub edges: bool,
@@ -121,6 +122,7 @@ impl Default for AsciiConfig {
     fn default() -> Self {
         Self {
             width_chars: 160,
+            height_chars: None,
             color: false,
             dither: false,
             edges: false,
@@ -140,8 +142,12 @@ pub fn convert_to_ascii(img: &DynamicImage, config: &AsciiConfig) -> Option<Asci
     }
 
     let out_w = config.width_chars;
-    let aspect_ratio = 0.45;
-    let out_h = ((img_h as f32 / img_w as f32) * out_w as f32 * aspect_ratio).round() as usize;
+    let out_h = if let Some(h) = config.height_chars {
+        h
+    } else {
+        let aspect_ratio = 0.45;
+        ((img_h as f32 / img_w as f32) * out_w as f32 * aspect_ratio).round() as usize
+    };
     let out_h = out_h.max(1);
 
     let resized = img.resize_exact(
@@ -264,8 +270,12 @@ fn convert_frame(img: &DynamicImage, config: &AsciiConfig) -> Option<AsciiResult
     }
 
     let out_w = config.width_chars;
-    let aspect_ratio = 0.45;
-    let out_h = ((img_h as f32 / img_w as f32) * out_w as f32 * aspect_ratio).round() as usize;
+    let out_h = if let Some(h) = config.height_chars {
+        h
+    } else {
+        let aspect_ratio = 0.45;
+        ((img_h as f32 / img_w as f32) * out_w as f32 * aspect_ratio).round() as usize
+    };
     let out_h = out_h.max(1);
 
     let resized = img.resize_exact(

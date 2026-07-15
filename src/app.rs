@@ -1,7 +1,7 @@
 use crate::engine::{self, AsciiConfig, AsciiResult};
 use eframe::egui::{self, FontFamily, FontId};
 use image::DynamicImage;
-use std::time::Instant;
+use web_time::Instant;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
@@ -572,9 +572,27 @@ impl eframe::App for AsciiApp {
                         ui.separator();
                         ui.label("Width");
                         let mut w = self.config.width_chars as f32;
-                        if ui.add(egui::Slider::new(&mut w, 20.0..=400.0).integer()).changed() {
+                        if ui.add(egui::Slider::new(&mut w, 1.0..=5000.0).integer()).changed() {
                             self.config.width_chars = w as usize;
                             self.dirty = true;
+                        }
+                        ui.horizontal(|ui| {
+                            ui.label("Height");
+                            let mut auto = self.config.height_chars.is_none();
+                            if ui.checkbox(&mut auto, "Auto").changed() {
+                                self.config.height_chars = if auto { None } else { Some(80) };
+                                self.dirty = true;
+                            }
+                        });
+                        {
+                            let auto = self.config.height_chars.is_none();
+                            let mut h = self.config.height_chars.unwrap_or(80) as f32;
+                            if !auto {
+                                if ui.add(egui::Slider::new(&mut h, 1.0..=5000.0).integer()).changed() {
+                                    self.config.height_chars = Some(h as usize);
+                                    self.dirty = true;
+                                }
+                            }
                         }
                         ui.label("Contrast");
                         if ui.add(egui::Slider::new(&mut self.config.contrast, 0.2..=3.0).logarithmic(true)).changed() {

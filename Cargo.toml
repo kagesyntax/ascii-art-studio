@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 image = "0.25"
 poll-promise = "0.3"
+web-time = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 eframe = "0.35"
