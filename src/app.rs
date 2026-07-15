@@ -91,13 +91,7 @@ impl AsciiApp {
         }
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(ref raw) = self.raw_frames {
-            use rayon::prelude::*;
-            let cfg = self.config.clone();
-            self.video_frames = Some(
-                raw.par_iter()
-                    .map(|frame| engine::convert_to_ascii(frame, &cfg).unwrap())
-                    .collect(),
-            );
+            self.video_frames = Some(engine::convert_video_frames(raw, &self.config));
             if self.video_current >= self.video_frames.as_ref().map_or(0, |f| f.len()) {
                 self.video_current = 0;
             }

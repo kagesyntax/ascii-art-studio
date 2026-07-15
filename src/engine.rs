@@ -256,6 +256,131 @@ pub fn convert_to_ascii(img: &DynamicImage, config: &AsciiConfig) -> Option<Asci
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn convert_frame(img: &DynamicImage, config: &AsciiConfig) -> Option<AsciiResult> {
+    let (img_w, img_h) = img.dimensions();
+    if img_w == 0 || img_h == 0 {
+        return None;
+    }
+
+    let out_w = config.width_chars;
+    let aspect_ratio = 0.45;
+    let out_h = ((img_h as f32 / img_w as f32) * out_w as f32 * aspect_ratio).round() as usize;
+    let out_h = out_h.max(1);
+
+    let resized = img.resize_exact(
+        out_w as u32,
+        out_h as u32,
+        image::imageops::FilterType::Nearest,
+    );
+
+    let charset = CHARSETS[config.charset_index];
+    let chars: Vec<char> = charset.chars().collect();
+    let num_levels = chars.len();
+
+    let n_pixels = out_w * out_h;
+
+    let mut pixels = Vec::with_capacity(n_pixels);
+    for y in 0..out_h {
+        for x in 0..out_w {
+            let c = resized.get_pixel(x as u32, y as u32);
+            pixels.push((luminance(c[0], c[1], c[2]), c[0], c[1], c[2]));
+        }
+    }
+
+    if config.contrast != 1.0 {
+        for px in &mut pixels {
+            let l = px.0 / 255.0;
+            px.0 = (l.powf(config.contrast) * 255.0).clamp(0.0, 255.0);
+        }
+    }
+
+    let mut luma_vals: Vec<f32> = pixels.iter().map(|p| p.0).collect();
+    let edge_map = if config.edges {
+        Some(sobel_edges_seq(&luma_vals, out_w, out_h, config.edge_threshold))
+    } else {
+        None
+    };
+
+    if config.dither {
+        for y in 0..out_h {
+            for x in 0..out_w {
+                let idx = y * out_w + x;
+                let old = luma_vals[idx];
+                let level = (old / 255.0 * (num_levels - 1) as f32).round() as usize;
+                let level = level.min(num_levels - 1);
+                let new = level as f32 / (num_levels - 1) as f32 * 255.0;
+                let err = old - new;
+                luma_vals[idx] = new;
+
+                if x + 1 < out_w {
+                    luma_vals[y * out_w + x + 1] += err * 7.0 / 16.0;
+                }
+                if y + 1 < out_h {
+                    if x > 0 {
+                        luma_vals[(y + 1) * out_w + x - 1] += err * 3.0 / 16.0;
+                    }
+                    luma_vals[(y + 1) * out_w + x] += err * 5.0 / 16.0;
+                    if x + 1 < out_w {
+                        luma_vals[(y + 1) * out_w + x + 1] += err * 1.0 / 16.0;
+                    }
+                }
+            }
+        }
+    }
+
+    let invert = config.invert;
+    let mut cells = Vec::with_capacity(out_h);
+    for y in 0..out_h {
+        cells.push(build_row(y, out_w, &pixels, &luma_vals, &edge_map, &chars, num_levels, invert));
+    }
+
+    Some(AsciiResult { cells, img_w, img_h, out_w, out_h })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn sobel_edges_seq(gray: &[f32], w: usize, h: usize, threshold: f32) -> Vec<Option<usize>> {
+    let mut edges = vec![None; w * h];
+    let t2 = threshold * threshold;
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            let base = (y - 1) * w + (x - 1);
+            let mut gx = 0.0;
+            let mut gy = 0.0;
+            for ky in 0..3 {
+                let r = &gray[base + ky * w..];
+                gx += r[0] * -1.0 + r[2] * 1.0;
+                gy += r[0] * -1.0 + r[1] * -2.0 + r[2] * -1.0;
+            }
+            let mag2 = gx * gx + gy * gy;
+            if mag2 > t2 {
+                let gy_abs = gy.abs();
+                let gx_abs = gx.abs();
+                let dir = if gy_abs > 2.414 * gx_abs {
+                    0
+                } else if gx_abs > 2.414 * gy_abs {
+                    2
+                } else if (gx > 0.0) == (gy > 0.0) {
+                    3
+                } else {
+                    1
+                };
+                edges[y * w + x] = Some(dir);
+            }
+        }
+    }
+    edges
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn convert_video_frames(frames: &[DynamicImage], config: &AsciiConfig) -> Vec<AsciiResult> {
+    let cfg = config.clone();
+    frames
+        .par_iter()
+        .map(|frame| convert_frame(frame, &cfg).unwrap())
+        .collect()
+}
+
 fn build_row(
     y: usize, out_w: usize, pixels: &[(f32, u8, u8, u8)],
     luma_vals: &[f32], edge_map: &Option<Vec<Option<usize>>>,
