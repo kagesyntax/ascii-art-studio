@@ -34,6 +34,7 @@ pub struct AsciiApp {
     #[cfg(not(target_arch = "wasm32"))]
     video_timer: f32,
     recompute_debounce: Option<Instant>,
+    zoom: f32,
 }
 
 impl Default for AsciiApp {
@@ -59,6 +60,7 @@ impl Default for AsciiApp {
             #[cfg(not(target_arch = "wasm32"))]
             video_timer: 0.0,
             recompute_debounce: None,
+            zoom: 1.0,
         }
     }
 }
@@ -363,137 +365,6 @@ impl eframe::App for AsciiApp {
             self.result = Some(frames[self.video_current].clone());
         }
 
-        egui::Panel::top("controls").show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 4.0;
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                ui.spacing_mut().item_spacing.y = 4.0;
-
-                if ui.button("Open File").clicked() {
-                    self.button_open();
-                }
-
-                if self.result.is_some() && ui.button("Save Text").clicked() {
-                    self.button_save_text();
-                }
-
-                if self.result.is_some() && ui.button("Save HTML").clicked() {
-                    self.button_save_html();
-                }
-
-                #[cfg(not(target_arch = "wasm32"))]
-                if self.video_frames.is_some() {
-                    ui.separator();
-                    if ui.button(if self.video_playing { "⏸" } else { "▶" }).clicked() {
-                        self.video_playing = !self.video_playing;
-                    }
-                    let total = self.video_frames.as_ref().map_or(0, |f| f.len());
-                    let mut frame = self.video_current as f32;
-                    ui.add(
-                        egui::Slider::new(&mut frame, 0.0..=total.max(1) as f32 - 1.0)
-                            .integer()
-                            .text(format!("{}/{}", self.video_current + 1, total)),
-                    );
-                    if frame as usize != self.video_current {
-                        self.video_current = frame as usize;
-                    }
-                }
-
-                if let Some(ref result) = self.result {
-                    ui.separator();
-                    ui.label(format!(
-                        "{}×{} px → {}×{} chars",
-                        result.img_w, result.img_h, result.out_w, result.out_h,
-                    ));
-                }
-
-                ui.separator();
-
-                ui.label("Width:");
-                let mut w = self.config.width_chars as f32;
-                if ui
-                    .add(egui::Slider::new(&mut w, 20.0..=400.0).integer())
-                    .changed()
-                {
-                    self.config.width_chars = w as usize;
-                    self.dirty = true;
-                }
-
-                ui.separator();
-
-                if ui.checkbox(&mut self.config.color, "Color").changed() {
-                    self.dirty = true;
-                }
-                if ui.checkbox(&mut self.config.dither, "Dither").changed() {
-                    self.dirty = true;
-                }
-                if ui.checkbox(&mut self.config.edges, "Edges").changed() {
-                    self.dirty = true;
-                }
-                if ui.checkbox(&mut self.config.invert, "Invert").changed() {
-                    self.dirty = true;
-                }
-
-                ui.separator();
-
-                ui.label("Contrast:");
-                if ui
-                    .add(
-                        egui::Slider::new(&mut self.config.contrast, 0.2..=3.0)
-                            .logarithmic(true),
-                    )
-                    .changed()
-                {
-                    self.dirty = true;
-                }
-
-                if self.config.edges {
-                    ui.label("Edge:");
-                    if ui
-                        .add(
-                            egui::Slider::new(
-                                &mut self.config.edge_threshold,
-                                1.0..=200.0,
-                            )
-                            .logarithmic(true),
-                        )
-                        .changed()
-                    {
-                        self.dirty = true;
-                    }
-                }
-
-                ui.separator();
-
-                ui.label("Font:");
-                if ui
-                    .add(egui::Slider::new(
-                        &mut self.config.font_size,
-                        4.0..=24.0,
-                    ))
-                    .changed()
-                {
-                    self.dirty = true;
-                }
-
-                ui.separator();
-
-                egui::ComboBox::from_id_salt("charset")
-                    .selected_text(engine::CHARSET_NAMES[self.config.charset_index])
-                    .show_ui(ui, |ui| {
-                        for (i, name) in engine::CHARSET_NAMES.iter().enumerate() {
-                            if ui
-                                .selectable_label(self.config.charset_index == i, *name)
-                                .clicked()
-                            {
-                                self.config.charset_index = i;
-                                self.dirty = true;
-                            }
-                        }
-                    });
-            });
-        });
-
         #[cfg(not(target_arch = "wasm32"))]
         if self.video_playing {
             let dt = ui.input(|i| i.unstable_dt);
@@ -510,6 +381,111 @@ impl eframe::App for AsciiApp {
             ui.ctx().request_repaint();
         }
 
+        egui::Panel::left("controls")
+            .resizable(false)
+            .min_size(180.0)
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+
+                    ui.label("Actions");
+                    ui.separator();
+                    if ui.button("Open File").clicked() {
+                        self.button_open();
+                    }
+                    if self.result.is_some() {
+                        if ui.button("Save Text").clicked() {
+                            self.button_save_text();
+                        }
+                        if ui.button("Save HTML").clicked() {
+                            self.button_save_html();
+                        }
+                    }
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if self.video_frames.is_some() {
+                        ui.add_space(8.0);
+                        ui.label("Playback");
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button(if self.video_playing { "⏸" } else { "▶" }).clicked() {
+                                self.video_playing = !self.video_playing;
+                            }
+                            let total = self.video_frames.as_ref().map_or(0, |f| f.len());
+                            let mut frame = self.video_current as f32;
+                            ui.add(
+                                egui::Slider::new(&mut frame, 0.0..=total.max(1) as f32 - 1.0)
+                                    .integer()
+                                    .text(format!("{}/{}", self.video_current + 1, total)),
+                            );
+                            if frame as usize != self.video_current {
+                                self.video_current = frame as usize;
+                            }
+                        });
+                    }
+
+                    ui.add_space(8.0);
+                    ui.label("Options");
+                    ui.separator();
+                    if ui.checkbox(&mut self.config.color, "Color").changed() {
+                        self.dirty = true;
+                    }
+                    if ui.checkbox(&mut self.config.dither, "Dither").changed() {
+                        self.dirty = true;
+                    }
+                    if ui.checkbox(&mut self.config.edges, "Edges").changed() {
+                        self.dirty = true;
+                    }
+                    if ui.checkbox(&mut self.config.invert, "Invert").changed() {
+                        self.dirty = true;
+                    }
+
+                    ui.add_space(8.0);
+                    ui.label("Sliders");
+                    ui.separator();
+                    ui.label("Width");
+                    let mut w = self.config.width_chars as f32;
+                    if ui.add(egui::Slider::new(&mut w, 20.0..=400.0).integer()).changed() {
+                        self.config.width_chars = w as usize;
+                        self.dirty = true;
+                    }
+                    ui.label("Contrast");
+                    if ui.add(egui::Slider::new(&mut self.config.contrast, 0.2..=3.0).logarithmic(true)).changed() {
+                        self.dirty = true;
+                    }
+                    if self.config.edges {
+                        ui.label("Edge Threshold");
+                        if ui.add(egui::Slider::new(&mut self.config.edge_threshold, 1.0..=200.0).logarithmic(true)).changed() {
+                            self.dirty = true;
+                        }
+                    }
+                    ui.label("Font Size");
+                    if ui.add(egui::Slider::new(&mut self.config.font_size, 4.0..=24.0)).changed() {
+                        self.dirty = true;
+                    }
+
+                    ui.add_space(8.0);
+                    ui.label("Charset");
+                    ui.separator();
+                    egui::ComboBox::from_id_salt("charset")
+                        .selected_text(engine::CHARSET_NAMES[self.config.charset_index])
+                        .show_ui(ui, |ui| {
+                            for (i, name) in engine::CHARSET_NAMES.iter().enumerate() {
+                                if ui.selectable_label(self.config.charset_index == i, *name).clicked() {
+                                    self.config.charset_index = i;
+                                    self.dirty = true;
+                                }
+                            }
+                        });
+
+                    if let Some(ref result) = self.result {
+                        ui.add_space(8.0);
+                        ui.label(format!("{}×{} px → {}×{}", result.img_w, result.img_h, result.out_w, result.out_h));
+                    }
+                });
+            });
+
         let bg = if self.config.invert {
             egui::Color32::WHITE
         } else {
@@ -519,52 +495,67 @@ impl eframe::App for AsciiApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(bg))
             .show(ui, |ui| {
+                let fg = if self.config.invert {
+                    egui::Color32::BLACK
+                } else {
+                    egui::Color32::WHITE
+                };
+
                 if let Some(ref result) = self.result {
-                    let font_size = self.config.font_size;
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("+").clicked() {
+                                self.zoom = (self.zoom * 1.25).min(10.0);
+                            }
+                            ui.label(format!("{:.1}x", self.zoom));
+                            if ui.button("-").clicked() {
+                                self.zoom = (self.zoom / 1.25).max(0.25);
+                            }
+                        });
+                    });
+
+                    let font_size = self.config.font_size * self.zoom;
                     let font_id = FontId::new(font_size, FontFamily::Monospace);
                     let line_h = font_size * 1.15;
                     let char_w = font_size * 0.6;
 
-                    let area_w = result.out_w as f32 * char_w + 8.0;
-                    let area_h = result.out_h as f32 * line_h + 8.0;
-                    ui.set_min_size(egui::vec2(area_w, area_h));
+                    egui::ScrollArea::both().show(ui, |ui| {
+                        let area_w = result.out_w as f32 * char_w + 8.0;
+                        let area_h = result.out_h as f32 * line_h + 8.0;
+                        ui.set_min_size(egui::vec2(area_w, area_h));
 
-                    let painter = ui.painter();
-                    let fg = if self.config.invert {
-                        egui::Color32::BLACK
-                    } else {
-                        egui::Color32::WHITE
-                    };
-                    let mut buf = [0u8; 4];
+                        let painter = ui.painter();
+                        let mut buf = [0u8; 4];
 
-                    for (i, row) in result.cells.iter().enumerate() {
-                        let y = 4.0 + i as f32 * line_h;
+                        for (i, row) in result.cells.iter().enumerate() {
+                            let y = 4.0 + i as f32 * line_h;
 
-                        let mut job = egui::text::LayoutJob::default();
-                        job.wrap.max_width = f32::INFINITY;
-                        if self.config.color {
-                            for cell in row {
-                                let s = cell.ch.encode_utf8(&mut buf);
-                                let fmt = egui::TextFormat {
-                                    font_id: font_id.clone(),
-                                    color: egui::Color32::from_rgb(cell.r, cell.g, cell.b),
-                                    ..Default::default()
-                                };
-                                job.append(s, 0.0, fmt);
+                            let mut job = egui::text::LayoutJob::default();
+                            job.wrap.max_width = f32::INFINITY;
+                            if self.config.color {
+                                for cell in row {
+                                    let s = cell.ch.encode_utf8(&mut buf);
+                                    let fmt = egui::TextFormat {
+                                        font_id: font_id.clone(),
+                                        color: egui::Color32::from_rgb(cell.r, cell.g, cell.b),
+                                        ..Default::default()
+                                    };
+                                    job.append(s, 0.0, fmt);
+                                }
+                            } else {
+                                for cell in row {
+                                    let s = cell.ch.encode_utf8(&mut buf);
+                                    let fmt = egui::TextFormat {
+                                        font_id: font_id.clone(),
+                                        color: fg,
+                                        ..Default::default()
+                                    };
+                                    job.append(s, 0.0, fmt);
+                                }
                             }
-                        } else {
-                            for cell in row {
-                                let s = cell.ch.encode_utf8(&mut buf);
-                                let fmt = egui::TextFormat {
-                                    font_id: font_id.clone(),
-                                    color: fg,
-                                    ..Default::default()
-                                };
-                                job.append(s, 0.0, fmt);
-                            }
+                            painter.galley(egui::pos2(4.0, y), painter.layout_job(job), fg);
                         }
-                        painter.galley(egui::pos2(4.0, y), painter.layout_job(job), fg);
-                    }
+                    });
                 } else {
                     ui.vertical_centered_justified(|ui| {
                         ui.heading("ASCII Art Studio");
