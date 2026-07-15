@@ -11,6 +11,8 @@ enum FilePick {
     Image(Vec<u8>),
     #[cfg(not(target_arch = "wasm32"))]
     Video(PathBuf, String),
+    #[cfg(target_arch = "wasm32")]
+    WasmVideo,
 }
 
 pub struct AsciiApp {
@@ -36,6 +38,8 @@ pub struct AsciiApp {
     recompute_debounce: Option<Instant>,
     zoom: f32,
     sidebar_open: bool,
+    #[cfg(target_arch = "wasm32")]
+    wasm_video_active: bool,
 }
 
 impl Default for AsciiApp {
@@ -63,6 +67,8 @@ impl Default for AsciiApp {
             recompute_debounce: None,
             zoom: 1.0,
             sidebar_open: true,
+            #[cfg(target_arch = "wasm32")]
+            wasm_video_active: false,
         }
     }
 }
@@ -74,6 +80,20 @@ const VIDEO_EXTS: &[&str] = &["mp4", "avi", "mov", "mkv", "webm", "gif"];
 fn is_video(path: &str) -> bool {
     let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
     VIDEO_EXTS.contains(&ext.as_str())
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static WASM_VIDEO: std::cell::RefCell<Option<WasmVideoState>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(target_arch = "wasm32")]
+struct WasmVideoState {
+    video: web_sys::HtmlVideoElement,
+    canvas: web_sys::HtmlCanvasElement,
+    ctx: web_sys::CanvasRenderingContext2d,
+    width: u32,
+    height: u32,
 }
 
 impl AsciiApp {
@@ -171,38 +191,78 @@ impl AsciiApp {
                 .ok()?;
             input.set_type("file");
             input.set_accept(
-                "image/png,image/jpeg,image/gif,image/webp,image/bmp,image/tiff",
+                "image/png,image/jpeg,image/gif,image/webp,image/bmp,image/tiff,video/mp4,video/webm,video/ogg,video/quicktime",
             );
             let _ = input.style().set_css_text("display:none");
             document.body()?.append_child(input.as_ref()).ok()?;
 
+            let doc = document.clone();
             let promise = js_sys::Promise::new(&mut |resolve, _reject| {
                 let input2 = input.clone();
                 let r = resolve.clone();
-                let cb = Closure::once(move || {
-                    if let Some(file) = input2.files().and_then(|fl| fl.get(0)) {
-                        let reader = web_sys::FileReader::new().unwrap();
-                        let reader2 = reader.clone();
-                        let r2 = r.clone();
-                        let onload = Closure::once(move || {
-                            let val = reader
-                                .result()
-                                .ok()
-                                .unwrap_or(JsValue::NULL);
-                            let _ = r2.call1(&JsValue::UNDEFINED, &val);
-                        });
-                        let _ = reader2.set_onload(Some(onload.as_ref().unchecked_ref()));
-                        onload.forget();
-                        let blob: &web_sys::Blob = file.unchecked_ref();
-                        let _ = reader2.read_as_array_buffer(blob);
+                let cb = {
+                    let doc2 = doc.clone();
+                    Closure::once(move || {
+                    let file = input2.files().and_then(|fl| fl.get(0));
+                    if let Some(ref file) = file {
+                        let is_video = file.type_().starts_with("video/");
+                        if is_video {
+                            let url = web_sys::Url::create_object_url_with_blob(file.unchecked_ref()).ok();
+                            if let Some(url) = url {
+                                let video = doc2.create_element("video").unwrap()
+                                    .dyn_into::<web_sys::HtmlVideoElement>().unwrap();
+                                video.set_src(&url);
+                                video.set_muted(true);
+                                video.set_autoplay(true);
+                                video.set_loop(true);
+                                let _ = video.style().set_css_text("display: none");
+                                let _ = doc2.body().unwrap().append_child(&video);
+
+                                let canvas = doc2.create_element("canvas").unwrap()
+                                    .dyn_into::<web_sys::HtmlCanvasElement>().unwrap();
+                                let ctx = canvas.get_context("2d").unwrap().unwrap()
+                                    .dyn_into::<web_sys::CanvasRenderingContext2d>().unwrap();
+
+                                let (v, c, cx) = (video.clone(), canvas.clone(), ctx.clone());
+                                let onmeta = Closure::once(move || {
+                                    let w = v.video_width();
+                                    let h = v.video_height();
+                                    c.set_width(w);
+                                    c.set_height(h);
+                                    WASM_VIDEO.with(|state| {
+                                        *state.borrow_mut() = Some(WasmVideoState {
+                                            video: v, canvas: c, ctx: cx,
+                                            width: w, height: h,
+                                        });
+                                    });
+                                });
+                                video.set_onloadedmetadata(Some(onmeta.as_ref().unchecked_ref()));
+                                onmeta.forget();
+                                video.play().ok();
+                            }
+                            let _ = r.call1(&JsValue::UNDEFINED, &JsValue::NULL);
+                        } else {
+                            let reader = web_sys::FileReader::new().unwrap();
+                            let reader2 = reader.clone();
+                            let r2 = r.clone();
+                            let onload = Closure::once(move || {
+                                let val = reader.result().ok().unwrap_or(JsValue::NULL);
+                                let _ = r2.call1(&JsValue::UNDEFINED, &val);
+                            });
+                            let _ = reader2.set_onload(Some(onload.as_ref().unchecked_ref()));
+                            onload.forget();
+                            let blob: &web_sys::Blob = file.unchecked_ref();
+                            let _ = reader2.read_as_array_buffer(blob);
+                        }
                     } else {
                         let _ = r.call1(&JsValue::UNDEFINED, &JsValue::NULL);
                     }
                     if let Some(parent) = input2.parent_node() {
                         let _ = parent.remove_child(&input2);
                     }
-                });
-                let _ = input.add_event_listener_with_callback(
+                })
+            };
+            let _ = input.add_event_listener_with_callback(
                     "change",
                     cb.as_ref().unchecked_ref(),
                 );
@@ -212,7 +272,7 @@ impl AsciiApp {
 
             let val = JsFuture::from(promise).await.ok()?;
             if val.is_null() || val.is_undefined() {
-                return None;
+                return Some(FilePick::WasmVideo);
             }
             let buf = js_sys::Uint8Array::new(&val);
             Some(FilePick::Image(buf.to_vec()))
@@ -326,6 +386,12 @@ impl eframe::App for AsciiApp {
                         self.result = None;
                         self.load_video(&name);
                     }
+                    #[cfg(target_arch = "wasm32")]
+                    FilePick::WasmVideo => {
+                        self.image = None;
+                        self.result = None;
+                        self.wasm_video_active = true;
+                    }
                 }
             } else {
                 self.pending_file = Some(promise);
@@ -380,6 +446,53 @@ impl eframe::App for AsciiApp {
                     self.video_current = 0;
                 }
             }
+            ui.ctx().request_repaint();
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        if self.wasm_video_active {
+            WASM_VIDEO.with(|state| {
+                if let Some(ref s) = *state.borrow() {
+                    let w = s.video.video_width();
+                    let h = s.video.video_height();
+                    if w > 0 && h > 0 && s.video.ready_state() >= 2 {
+                        if w != s.width || h != s.height {
+                            s.canvas.set_width(w);
+                            s.canvas.set_height(h);
+                            WASM_VIDEO.with(|st| {
+                                if let Some(ref mut inner) = *st.borrow_mut() {
+                                    inner.width = w;
+                                    inner.height = h;
+                                }
+                            });
+                        }
+                        let _ = s.ctx.draw_image_with_html_video_element(&s.video, 0.0, 0.0);
+                        if let Ok(data) = s.ctx.get_image_data(0.0, 0.0, w as f64, h as f64) {
+                            let pixels = data.data().to_vec();
+                            if w > 0 && h > 0 {
+                                let scale = self.config.width_chars as u32;
+                                let fw = scale.max(1);
+                                let fh = (h as f32 / w as f32 * fw as f32 * 0.45).round().max(1.0) as u32;
+                                let mut rgb = Vec::with_capacity((fw * fh * 3) as usize);
+                                for j in 0..fh {
+                                    for i in 0..fw {
+                                        let sx = (i as f32 / fw as f32 * w as f32) as u32;
+                                        let sy = (j as f32 / fh as f32 * h as f32) as u32;
+                                        let idx = ((sy * w + sx) * 4) as usize;
+                                        rgb.push(pixels[idx]);
+                                        rgb.push(pixels[idx + 1]);
+                                        rgb.push(pixels[idx + 2]);
+                                    }
+                                }
+                                if let Some(img) = image::RgbImage::from_raw(fw, fh, rgb) {
+                                    self.image = Some(image::DynamicImage::ImageRgb8(img));
+                                    self.dirty = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
             ui.ctx().request_repaint();
         }
 

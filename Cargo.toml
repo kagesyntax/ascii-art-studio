@@ -24,8 +24,8 @@ wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = { version = "0.3", default-features = false, features = [
   "Blob", "BlobPropertyBag", "Url", "MouseEvent", "Document", "Element", "Window",
-  "HtmlCanvasElement", "HtmlInputElement", "File", "FileList", "FileReader",
-  "CssStyleDeclaration", "console",
+  "HtmlCanvasElement", "HtmlInputElement", "HtmlVideoElement", "File", "FileList", "FileReader",
+  "CanvasRenderingContext2d", "ImageData", "CssStyleDeclaration", "console",
 ] }
 console_error_panic_hook = "0.1"
 log = "0.4"
