@@ -1,4 +1,4 @@
-# ASCII Art Studio
+# xdcipher
 
 A Rust application that converts images and videos to ASCII art in real-time. Built with [egui](https://github.com/emilk/egui) for the native desktop GUI and compiles to WebAssembly for web deployment via Cloudflare Pages.
 
@@ -26,7 +26,7 @@ A Rust application that converts images and videos to ASCII art in real-time. Bu
 ## Running Natively
 
 ```sh
-cargo run --bin ascii_gui
+cargo run --bin xdcipher
 ```
 
 Video playback requires `ffmpeg` and `ffprobe` to be installed and available on `PATH`.

@@ -1912,25 +1912,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "learn"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "eframe",
- "image",
- "js-sys",
- "log",
- "poll-promise",
- "pollster",
- "rayon",
- "rfd",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "web-time",
-]
-
-[[package]]
 name = "lebe"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4604,6 +4585,25 @@ name = "xcursor"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bec9e4a500ca8864c5b47b8b482a73d62e4237670e5b5f1d6b9e3cae50f28f2b"
+
+[[package]]
+name = "xdcipher"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "eframe",
+ "image",
+ "js-sys",
+ "log",
+ "poll-promise",
+ "pollster",
+ "rayon",
+ "rfd",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "web-time",
+]
 
 [[package]]
 name = "xkbcommon-dl"

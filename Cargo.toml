@@ -1,8 +1,8 @@
 [package]
-name = "learn"
+name = "xdcipher"
 version = "0.1.0"
 edition = "2024"
-default-run = "ascii_gui"
+default-run = "xdcipher"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

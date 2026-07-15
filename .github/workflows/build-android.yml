@@ -1,0 +1,23 @@
+name: build-android
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: android-actions/setup-android@v3
+      - run: cargo install cargo-apk
+      - run: cargo apk build --target aarch64-linux-android --release
+      - run: cargo apk build --target armv7-linux-androideabi --release
+      - run: cargo apk build --target x86_64-linux-android --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xdcipher-android-apks
+          path: target/release/apk/

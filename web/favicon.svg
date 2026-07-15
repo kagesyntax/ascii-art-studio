@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" fill="#111"/>
-  <text x="32" y="44" font-family="monospace" font-size="36" fill="#0f0" text-anchor="middle" font-weight="bold">@</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="24" fill="#0f0f0f"/>
+  <text x="64" y="82" font-family="'Courier New',monospace" font-size="64" font-weight="bold" fill="#00ff88" text-anchor="middle" letter-spacing="-2">xD</text>
+  <text x="64" y="110" font-family="'Courier New',monospace" font-size="12" fill="#666" text-anchor="middle">cipher</text>
 </svg>

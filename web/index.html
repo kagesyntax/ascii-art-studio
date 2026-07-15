@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>ASCII Art Studio</title>
+  <title>xdcipher</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/png" sizes="256x256" href="favicon.png">
+  <link rel="shortcut icon" href="favicon.ico">
   <style>
     html, body {
       margin: 0;
@@ -38,11 +40,11 @@
 </head>
 <body>
   <div id="canvas-container">
-    <div class="loading">Loading ASCII Art Studio…</div>
+    <div class="loading">Loading xdcipher…</div>
   </div>
 
   <script type="module">
-    import init, { WebHandle } from './pkg/learn.js';
+    import init, { WebHandle } from './pkg/xdcipher.js';
 
     async function run() {
       await init();
@@ -59,7 +61,7 @@
       await handle.start(canvas);
       canvas.focus();
       window.webHandle = handle;
-      console.log('ASCII Art Studio started successfully');
+      console.log('xdcipher started successfully');
     }
 
     run().catch(err => {
